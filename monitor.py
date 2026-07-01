@@ -192,19 +192,13 @@ def scan_resources(
     max_seen_id = int(state.get("maxObservedResourceId", resource_scan_start_id()))
 
     for ids in plan["batches"]:
-        request_ids = pad_resource_request_ids(ids)
         try:
-            payload = fetch_json(
-                RESOURCE_LIST_URL,
-                method="POST",
-                headers={**binance_headers(), "content-type": "application/json"},
-                body={"idList": request_ids, "pageIndex": 1, "pageSize": len(request_ids)},
-            )
+            payloads = fetch_resource_payloads(ids)
         except Exception as exc:  # noqa: BLE001 - continue other batches.
             errors.append(error_message(f"resource {ids[0]}-{ids[-1]}", exc))
             continue
 
-        for resource in extract_array(payload):
+        for resource in (resource for payload in payloads for resource in extract_array(payload)):
             resource_id = get_number(resource, ["id", "resourceId"])
             if resource_id:
                 max_seen_id = max(max_seen_id, int(resource_id))
@@ -243,6 +237,33 @@ def scan_resources(
                 )
 
     return {"matches": matches, "alerts": alerts, "maxSeenId": max_seen_id, "errors": errors}
+
+
+def fetch_resource_payloads(ids: list[int]) -> list[Any]:
+    request_ids = pad_resource_request_ids(ids)
+    try:
+        return [
+            fetch_json(
+                RESOURCE_LIST_URL,
+                method="POST",
+                headers={**binance_headers(), "content-type": "application/json"},
+                body={"idList": request_ids, "pageIndex": 1, "pageSize": len(request_ids)},
+            )
+        ]
+    except Exception as exc:
+        if not should_split_resource_error(exc) or len(ids) <= 1:
+            raise
+
+        midpoint = len(ids) // 2
+        return [
+            *fetch_resource_payloads(ids[:midpoint]),
+            *fetch_resource_payloads(ids[midpoint:]),
+        ]
+
+
+def should_split_resource_error(error: Exception) -> bool:
+    message = str(error)
+    return "HTTP 400" in message and ("参数非法" in message or "000002" in message)
 
 
 def plan_resource_scan(state: dict[str, Any]) -> dict[str, Any]:
