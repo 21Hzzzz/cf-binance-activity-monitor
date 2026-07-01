@@ -90,7 +90,7 @@ install_file() {
   fi
 }
 
-telegram_bot_token="$(prompt_value TELEGRAM_BOT_TOKEN "Telegram bot token" true true)"
+telegram_bot_token="$(prompt_value TELEGRAM_BOT_TOKEN "Telegram bot token" true false)"
 telegram_chat_id="$(prompt_value TELEGRAM_CHAT_ID "Telegram chat id" true false)"
 telegram_thread_id="$(prompt_value TELEGRAM_MESSAGE_THREAD_ID "Telegram message thread id (optional)" false false)"
 

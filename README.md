@@ -26,6 +26,8 @@ TELEGRAM_CHAT_ID
 TELEGRAM_MESSAGE_THREAD_ID 可选
 ```
 
+输入 `TELEGRAM_BOT_TOKEN` 时终端会明文显示字符，方便粘贴后检查。
+
 非交互安装也可以这样传参：
 
 ```bash
@@ -33,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/21Hzzzz/cf-binance-activity-monitor
 sudo env TELEGRAM_BOT_TOKEN="你的 bot token" TELEGRAM_CHAT_ID="你的 chat id" bash /tmp/cf-binance-activity-monitor-install.sh
 ```
 
-安装完成后会立即运行一次基线检查。默认 `ALERT_ON_FIRST_RUN=false`，所以第一次运行只记录已有内容，不会推送旧活动。
+安装完成后会立即运行一次基线检查，并向 Telegram 发送一条 heartbeat 心跳消息，确认服务和 Telegram 推送可用。默认 `ALERT_ON_FIRST_RUN=false`，所以第一次运行只记录已有内容，不会推送旧活动。
 
 ## 一键卸载
 

@@ -100,9 +100,6 @@ def run_monitor(dry_run: bool) -> dict[str, Any]:
             send_telegram(format_alerts(alerts, now))
             state["lastAlertAt"] = now
 
-        if not dry_run and errors:
-            maybe_send_error_alert(state, errors, now)
-
         last_scan = {
             "at": now,
             "dryRun": dry_run,
@@ -118,6 +115,13 @@ def run_monitor(dry_run: bool) -> dict[str, Any]:
         }
 
         if not dry_run:
+            if not state.get("startupHeartbeatAt"):
+                send_telegram(format_startup_heartbeat(first_run, last_scan, now))
+                state["startupHeartbeatAt"] = now
+
+            if errors:
+                maybe_send_error_alert(state, errors, now)
+
             state["version"] = 1
             state.setdefault("initializedAt", now)
             state["runCount"] = int(state.get("runCount", 0)) + 1
@@ -410,6 +414,23 @@ def format_alerts(alerts: list[dict[str, Any]], now: str) -> str:
         lines.extend(alert["details"])
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def format_startup_heartbeat(first_run: bool, last_scan: dict[str, Any], now: str) -> str:
+    status = "ok" if not last_scan["errors"] else "error"
+    lines = [
+        "Binance activity monitor heartbeat",
+        now,
+        "",
+        f"status: {status}",
+        f"firstRun: {str(first_run).lower()}",
+        f"bannerMatches: {last_scan['bannerMatches']}",
+        f"resourceMatches: {last_scan['resourceMatches']}",
+        f"resourceBatches: {last_scan['resourceBatches']}",
+    ]
+    if last_scan["errors"]:
+        lines.append(f"errors: {len(last_scan['errors'])}")
+    return "\n".join(lines)
 
 
 def split_telegram_message(text: str) -> list[str]:
