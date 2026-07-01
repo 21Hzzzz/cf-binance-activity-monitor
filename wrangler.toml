@@ -1,0 +1,30 @@
+name = "binance-activity-monitor"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+LANG = "zh-CN"
+STATE_KEY = "monitor-state-v1"
+
+# Free-plan budget:
+# 1 KV read + 1 banner request + 35 resource/list requests + 1 Telegram request + 1 KV write = about 39 subrequests.
+RESOURCE_BATCH_SIZE = "100"
+RESOURCE_BATCHES_PER_RUN = "35"
+RESOURCE_PROBE_BATCHES_PER_RUN = "10"
+
+# Start near the resource id range observed during the APK/API investigation.
+RESOURCE_SCAN_START_ID = "100003800"
+RESOURCE_BACKTRACK = "800"
+RESOURCE_RECENT_AHEAD = "1700"
+
+# First scheduled run records the current baseline without alerting old links.
+ALERT_ON_FIRST_RUN = "false"
+
+# Create a KV namespace, then replace this id:
+# bunx wrangler kv namespace create STATE
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
