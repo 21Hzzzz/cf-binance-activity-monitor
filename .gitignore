@@ -1,4 +1,8 @@
 node_modules/
-.wrangler/
-.dev.vars
-dist/
+__pycache__/
+*.py[cod]
+.env
+*.env
+state.json
+*.json.lock
+*.log

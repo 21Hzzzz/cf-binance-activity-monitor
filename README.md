@@ -1,135 +1,146 @@
-# Binance Activity Monitor on Cloudflare Workers
+# Binance Activity Monitor
 
-这是一个部署在 Cloudflare Workers 上的 Binance 活动监控器，会定时检查 Binance 活动入口，并把新发现推送到 Telegram。
+这是一个可部署在 Debian 服务器上的轻量 Binance 活动监控脚本。它会定时检查 Binance 活动入口，并把新发现推送到 Telegram。
 
-Worker 默认每 15 分钟监控两个来源：
+当前监控两个来源：
 
 - `marketing/banners`：监控 Binance App 首页 banner，发现新的带链接 banner 后推送到 Telegram。
 - `growth-paas/resource/list`：按 resource id 扫描，发现新的 `/activity/chance/` 活动后推送到 Telegram。
 
-默认配置按 Cloudflare Workers Free 计划控制请求量。每轮大约使用 39 个 subrequests：1 次 KV 读取、1 次 banner 请求、最多 35 次 `resource/list` 请求、1 次 Telegram 请求、1 次 KV 写入。
+脚本使用 Python 标准库实现，不需要第三方 Python 依赖。安装脚本会创建 systemd service 和 timer，默认每 15 分钟运行一次。
 
-## 一键部署
+## 一键安装
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/21Hzzzz/cf-binance-activity-monitor)
+在 Debian 服务器上执行：
 
-推荐大多数用户使用这个方式。
+```bash
+curl -fsSL https://raw.githubusercontent.com/21Hzzzz/cf-binance-activity-monitor/main/install.sh -o /tmp/cf-binance-activity-monitor-install.sh
+sudo bash /tmp/cf-binance-activity-monitor-install.sh
+```
 
-1. 点击上方按钮。
-2. 按 Cloudflare 提示授权 GitHub，并 fork 这个仓库。
-3. Worker 名称建议保持为 `cf-binance-activity-monitor`。
-4. Cloudflare 提示配置 KV 时，创建或选择一个 KV namespace，并把绑定变量名设为 `STATE`。
-5. 首次部署完成后，进入 Cloudflare Dashboard 的 Worker 设置页，添加运行时变量和密钥。
-
-必填运行时密钥：
+安装过程会提示填写：
 
 ```text
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
-MONITOR_AUTH_TOKEN
+TELEGRAM_MESSAGE_THREAD_ID 可选
 ```
 
-可选运行时密钥：
+非交互安装也可以这样传参：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/21Hzzzz/cf-binance-activity-monitor/main/install.sh -o /tmp/cf-binance-activity-monitor-install.sh
+sudo env TELEGRAM_BOT_TOKEN="你的 bot token" TELEGRAM_CHAT_ID="你的 chat id" bash /tmp/cf-binance-activity-monitor-install.sh
+```
+
+安装完成后会立即运行一次基线检查。默认 `ALERT_ON_FIRST_RUN=false`，所以第一次运行只记录已有内容，不会推送旧活动。
+
+## 一键卸载
+
+保留配置和状态数据：
+
+```bash
+sudo /opt/cf-binance-activity-monitor/uninstall.sh
+```
+
+同时删除配置和状态数据：
+
+```bash
+sudo /opt/cf-binance-activity-monitor/uninstall.sh --purge
+```
+
+如果本地脚本已经被删，也可以直接下载卸载脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/21Hzzzz/cf-binance-activity-monitor/main/uninstall.sh -o /tmp/cf-binance-activity-monitor-uninstall.sh
+sudo bash /tmp/cf-binance-activity-monitor-uninstall.sh --purge
+```
+
+## 文件位置
 
 ```text
-TELEGRAM_MESSAGE_THREAD_ID
+/opt/cf-binance-activity-monitor/monitor.py       主程序
+/etc/cf-binance-activity-monitor.env             运行配置
+/var/lib/cf-binance-activity-monitor/state.json  去重和扫描状态
+/etc/systemd/system/cf-binance-activity-monitor.service
+/etc/systemd/system/cf-binance-activity-monitor.timer
 ```
 
-可选运行时变量：
+配置文件权限会设置为 `600`，用于保存 Telegram token。
+
+## 常用命令
+
+查看定时器：
+
+```bash
+sudo systemctl status cf-binance-activity-monitor.timer
+```
+
+手动运行一次：
+
+```bash
+sudo systemctl start cf-binance-activity-monitor.service
+```
+
+查看日志：
+
+```bash
+sudo journalctl -u cf-binance-activity-monitor.service -n 100 --no-pager
+```
+
+试跑一次，不发送 Telegram，也不写入状态：
+
+```bash
+sudo python3 /opt/cf-binance-activity-monitor/monitor.py --env-file /etc/cf-binance-activity-monitor.env run --dry-run
+```
+
+查看当前状态：
+
+```bash
+sudo python3 /opt/cf-binance-activity-monitor/monitor.py --env-file /etc/cf-binance-activity-monitor.env status
+```
+
+## 配置项
+
+主要配置在 `/etc/cf-binance-activity-monitor.env`：
 
 ```text
-LANG = zh-CN
-ALERT_ON_FIRST_RUN = false
+TELEGRAM_BOT_TOKEN=你的 bot token
+TELEGRAM_CHAT_ID=你的 chat id
+TELEGRAM_MESSAGE_THREAD_ID=可选 topic/thread id
+BINANCE_LANG=zh-CN
+ALERT_ON_FIRST_RUN=false
+RESOURCE_BATCH_SIZE=100
+RESOURCE_BATCHES_PER_RUN=35
+RESOURCE_PROBE_BATCHES_PER_RUN=10
+RESOURCE_SCAN_START_ID=100003800
+RESOURCE_BACKTRACK=800
+RESOURCE_RECENT_AHEAD=1700
+ERROR_ALERT_COOLDOWN_SECONDS=3600
 ```
 
-不要把 Telegram token 写进 GitHub build variables，也不要写进 `wrangler.toml`。这些值应该放在 Cloudflare Worker 的运行时 **Variables and Secrets** 里。
-
-## GitHub 自动构建部署
-
-如果你通过 **Cloudflare Dashboard -> Workers & Pages -> Create -> Continue with GitHub** 连接这个仓库，推荐配置：
-
-```text
-Build command: bun run typecheck
-Deploy command: bun run deploy
-Build variables: BUN_VERSION = 1.3.14
-```
-
-第一次部署前必须先创建 KV namespace，并把 `wrangler.toml` 里的占位符替换成真实 KV namespace id：
-
-```toml
-[[kv_namespaces]]
-binding = "STATE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-```
-
-`id` 必须是真实的 Cloudflare KV namespace id。如果保留占位符，部署会失败：
-
-```text
-KV namespace 'REPLACE_WITH_KV_NAMESPACE_ID' is not valid
-```
-
-部署成功后，再添加“一键部署”部分列出的运行时密钥。
-
-## 本地 Wrangler 部署
-
-1. 安装依赖：
-
-```powershell
-bun install
-```
-
-2. 登录 Cloudflare：
-
-```powershell
-bunx wrangler login
-```
-
-3. 创建 KV namespace：
-
-```powershell
-bunx wrangler kv namespace create STATE
-```
-
-4. 把命令输出里的 `id` 填入 `wrangler.toml`。
-
-5. 添加 Telegram 密钥：
-
-```powershell
-bunx wrangler secret put TELEGRAM_BOT_TOKEN
-bunx wrangler secret put TELEGRAM_CHAT_ID
-bunx wrangler secret put MONITOR_AUTH_TOKEN
-```
-
-如果 Telegram 群组启用了 topic/thread，可以额外添加：
-
-```powershell
-bunx wrangler secret put TELEGRAM_MESSAGE_THREAD_ID
-```
-
-6. 部署：
-
-```powershell
-bun run deploy
-```
-
-## 手动验证
-
-部署完成后可以访问：
-
-- `/status`：查看最近一次监控状态。
-- `/run?dry=1&token=YOUR_MONITOR_AUTH_TOKEN`：试跑一次，不发送 Telegram，也不写入状态。
-- `/run?token=YOUR_MONITOR_AUTH_TOKEN`：手动运行一次，写入状态，并推送新增发现。
-
-如果没有配置 `MONITOR_AUTH_TOKEN`，`/run` 会拒绝访问。定时任务不受影响。
+修改配置后可以直接手动运行一次 service，下一轮 timer 也会读取新配置。
 
 ## 首轮基线
 
-默认 `ALERT_ON_FIRST_RUN=false`。
+默认：
+
+```text
+ALERT_ON_FIRST_RUN=false
+```
 
 第一次运行只记录当前已经存在的 banner 和 resource，不推送旧内容。后续运行发现新增内容时才会推送。
 
-如果你希望第一次运行也推送扫描到的内容，可以设置：
+如果你希望第一次运行也推送扫描到的内容，可以改成：
 
-```toml
-ALERT_ON_FIRST_RUN = "true"
+```text
+ALERT_ON_FIRST_RUN=true
+```
+
+## 错误提醒
+
+如果 Binance 接口、网络或 Telegram 推送出现错误，脚本会把错误发送到 Telegram。相同错误默认 1 小时冷却一次，避免刷屏：
+
+```text
+ERROR_ALERT_COOLDOWN_SECONDS=3600
 ```
