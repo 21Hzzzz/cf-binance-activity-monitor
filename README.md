@@ -1,44 +1,27 @@
 # Binance Activity Monitor on Cloudflare Workers
 
-这个 Worker 每 15 分钟监控两个来源：
+Monitor Binance activity entry points on Cloudflare Workers and send new findings to Telegram.
 
-- `marketing/banners`：App 首页 banner，发现新的带链接 banner 推送 Telegram。
-- `growth-paas/resource/list`：按 resource id 扫描，发现新的 `/activity/chance/` 活动推送 Telegram。
+This Worker checks two sources every 15 minutes:
 
-默认按 Cloudflare Workers Free 计划控制预算：每轮最多 35 次 `resource/list` 请求，加上 KV、banner、Telegram，总 subrequests 约 39 次，低于 Free 的 50/request 限制。
+- `marketing/banners`: monitors Binance app homepage banners and sends newly seen linked banners to Telegram.
+- `growth-paas/resource/list`: scans resource IDs and sends newly seen `/activity/chance/` activities to Telegram.
 
-## 部署步骤
+The default configuration is sized for the Cloudflare Workers Free plan. Each run uses about 39 subrequests: one KV read, one banner request, up to 35 `resource/list` requests, one Telegram request, and one KV write.
 
-### 方式 A：Cloudflare Dashboard 连接 GitHub
+## One-Click Deploy
 
-可以把这个目录作为一个单独 GitHub repository 上传，然后在 Cloudflare 的 **Create Worker -> Continue with GitHub** 里选择它。Cloudflare 官方支持把 GitHub repo 连接到 Worker，并在每次 push 后自动部署。
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/21Hzzzz/cf-binance-activity-monitor)
 
-推荐设置：
+Recommended for most users.
 
-```text
-Root directory: 留空
-Build command: bun run typecheck
-Deploy command: bun run deploy
-Build variables: BUN_VERSION = 1.3.14
-```
+1. Click the button above.
+2. Authorize Cloudflare to access GitHub and fork this repository when prompted.
+3. Keep the Worker name as `cf-binance-activity-monitor` unless you know you need another name.
+4. When Cloudflare asks for KV bindings, create or select a KV namespace and bind it with variable name `STATE`.
+5. After the first deploy, open the Worker in Cloudflare Dashboard and add runtime variables/secrets.
 
-如果你上传的是整个 `rebn` 目录，而不是单独上传本项目目录，则设置：
-
-```text
-Root directory: cf-binance-activity-monitor
-Build command: bun run typecheck
-Deploy command: bun run deploy
-Build variables: BUN_VERSION = 1.3.14
-```
-
-GitHub 自动部署前仍然需要先处理 KV：
-
-1. 在 Cloudflare Dashboard 创建 KV namespace，例如 `binance_activity_monitor_state`。
-2. 复制 KV namespace ID。
-3. 把 `wrangler.toml` 里的 `REPLACE_WITH_KV_NAMESPACE_ID` 改成真实 ID。
-4. 提交并 push 到 GitHub。
-
-首次部署成功后，在 Worker 的 **Settings -> Variables and Secrets** 添加 runtime secrets：
+Required runtime secrets:
 
 ```text
 TELEGRAM_BOT_TOKEN
@@ -46,76 +29,106 @@ TELEGRAM_CHAT_ID
 MONITOR_AUTH_TOKEN
 ```
 
-可选：
+Optional runtime secret:
 
 ```text
 TELEGRAM_MESSAGE_THREAD_ID
 ```
 
-注意：Cloudflare 的 Build Variables and Secrets 只给构建过程使用，不等于 Worker 运行时变量。Telegram token 和 chat id 要放在 Worker 的 runtime **Variables and Secrets** 里。
+Optional runtime variables:
 
-### 方式 B：本机 Wrangler 部署
+```text
+LANG = zh-CN
+ALERT_ON_FIRST_RUN = false
+```
 
-1. 安装依赖：
+Do not put Telegram tokens into GitHub build variables or into `wrangler.toml`. They should be Worker runtime secrets in Cloudflare Dashboard under **Settings -> Variables and Secrets**.
+
+## GitHub Connected Build
+
+If you connect this repository through **Cloudflare Dashboard -> Workers & Pages -> Create -> Continue with GitHub**, Cloudflare will run:
+
+```text
+Build command: bun run typecheck
+Deploy command: bun run deploy
+Build variables: BUN_VERSION = 1.3.14
+```
+
+Before the first connected build can deploy successfully, create a KV namespace and replace the placeholder in `wrangler.toml`:
+
+```toml
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+```
+
+The `id` must be the real Cloudflare KV namespace ID. If it stays as `REPLACE_WITH_KV_NAMESPACE_ID`, deployment fails with:
+
+```text
+KV namespace 'REPLACE_WITH_KV_NAMESPACE_ID' is not valid
+```
+
+After deployment succeeds, add the same runtime secrets listed in the one-click deploy section.
+
+## Local Wrangler Deploy
+
+1. Install dependencies:
 
 ```powershell
 bun install
 ```
 
-2. 登录 Cloudflare：
+2. Log in to Cloudflare:
 
 ```powershell
 bunx wrangler login
 ```
 
-3. 创建 KV namespace：
+3. Create a KV namespace:
 
 ```powershell
 bunx wrangler kv namespace create STATE
 ```
 
-把输出里的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]]`。
+4. Copy the returned `id` into `wrangler.toml`.
 
-4. 写入 Telegram secrets：
+5. Add Telegram secrets:
 
 ```powershell
 bunx wrangler secret put TELEGRAM_BOT_TOKEN
 bunx wrangler secret put TELEGRAM_CHAT_ID
+bunx wrangler secret put MONITOR_AUTH_TOKEN
 ```
 
-如果群组开启了 topic，可以额外设置：
+Optional Telegram topic/thread:
 
 ```powershell
 bunx wrangler secret put TELEGRAM_MESSAGE_THREAD_ID
 ```
 
-5. 可选：设置手动触发 token：
-
-```powershell
-bunx wrangler secret put MONITOR_AUTH_TOKEN
-```
-
-6. 部署：
+6. Deploy:
 
 ```powershell
 bun run deploy
 ```
 
-## 手动验证
+## Manual Verification
 
-部署后可以访问：
+After deployment, use:
 
-- `/status`：查看最近状态。
-- `/run?dry=1&token=你的MONITOR_AUTH_TOKEN`：试跑，不发 Telegram，不写入状态。
-- `/run?token=你的MONITOR_AUTH_TOKEN`：手动跑一次，会写状态并推送新增发现。
+- `/status`: view latest monitor status.
+- `/run?dry=1&token=YOUR_MONITOR_AUTH_TOKEN`: test a run without sending Telegram messages or writing state.
+- `/run?token=YOUR_MONITOR_AUTH_TOKEN`: run once, write state, and send newly discovered items.
 
-如果没有设置 `MONITOR_AUTH_TOKEN`，`/run` 会拒绝访问，定时任务不受影响。
+If `MONITOR_AUTH_TOKEN` is not configured, `/run` is rejected. Scheduled runs are not affected.
 
-## 首轮基线
+## First Run Baseline
 
-默认 `ALERT_ON_FIRST_RUN=false`。第一次运行只记录当前已经存在的链接，不推送旧活动。之后发现新增链接才推送。
+By default, `ALERT_ON_FIRST_RUN=false`.
 
-如果你想第一次运行也把扫描到的链接推到 Telegram，把 `wrangler.toml` 改成：
+The first run records existing banners and resources without pushing old items to Telegram. Later runs alert only on newly discovered items.
+
+To alert on the first run too, set:
 
 ```toml
 ALERT_ON_FIRST_RUN = "true"

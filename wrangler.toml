@@ -1,4 +1,4 @@
-name = "binance-activity-monitor"
+name = "cf-binance-activity-monitor"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
 
@@ -23,7 +23,8 @@ RESOURCE_RECENT_AHEAD = "1700"
 # First scheduled run records the current baseline without alerting old links.
 ALERT_ON_FIRST_RUN = "false"
 
-# Create a KV namespace, then replace this id:
+# One-click Cloudflare deploy asks the user to create or select this STATE binding.
+# For direct GitHub connected builds or local Wrangler deploys, replace this id:
 # bunx wrangler kv namespace create STATE
 [[kv_namespaces]]
 binding = "STATE"
