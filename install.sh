@@ -34,11 +34,18 @@ read_existing_config() {
   fi
 }
 
+restore_tty_echo() {
+  if [ -r /dev/tty ]; then
+    stty echo </dev/tty 2>/dev/null || true
+  fi
+}
+
+trap restore_tty_echo EXIT INT TERM
+
 prompt_value() {
   local key="$1"
   local prompt="$2"
   local required="${3:-true}"
-  local secret="${4:-false}"
   local value="${!key:-}"
 
   if [ -z "$value" ]; then
@@ -47,12 +54,9 @@ prompt_value() {
 
   if [ -z "$value" ] && [ -r /dev/tty ]; then
     while true; do
-      if [ "$secret" = "true" ]; then
-        read -r -s -p "$prompt: " value </dev/tty
-        echo >/dev/tty
-      else
-        read -r -p "$prompt: " value </dev/tty
-      fi
+      restore_tty_echo
+      read -r -p "$prompt: " value </dev/tty
+      restore_tty_echo
       if [ -n "$value" ] || [ "$required" != "true" ]; then
         break
       fi
